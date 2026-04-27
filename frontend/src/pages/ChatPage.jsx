@@ -158,10 +158,15 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
   const fetchHistory = (userId, attempt = 1) => {
     setConversations(p => ({ ...p, [userId]: 'loading' }));
 
+    // Abort after 12s so we always retry instead of hanging forever
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+
     fetch(`${apiUrl}/api/messages/${userId}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: ctrl.signal,
     })
-      .then(r => { if (!r.ok) throw new Error('bad'); return r.json(); })
+      .then(r => { clearTimeout(timer); if (!r.ok) throw new Error('bad'); return r.json(); })
       .then(data => {
         const msgs = Array.isArray(data) ? data : [];
         setConversations(p => {
@@ -174,9 +179,12 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
         if (msgs.length > 0) setLastMessages(p => ({ ...p, [userId]: msgs[msgs.length - 1] }));
       })
       .catch(() => {
+        clearTimeout(timer);
         if (attempt < 4) {
+          // Retry: attempt 1→6s, 2→12s, 3→18s gap
           setTimeout(() => fetchHistory(userId, attempt + 1), 6000 * attempt);
         } else {
+          // Give up — show empty state so UI doesn't stay stuck
           setConversations(p => ({ ...p, [userId]: [] }));
         }
       });
