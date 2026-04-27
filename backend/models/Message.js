@@ -16,7 +16,11 @@ const messageSchema = new mongoose.Schema(
       type:     String,
       required: true,
     },
-    // 'text' or 'image'
+    // Denormalized so avatar shows correctly even if user later changes it
+    senderAvatar: {
+      type:    String,
+      default: null,
+    },
     messageType: {
       type:    String,
       enum:    ['text', 'image'],
@@ -28,12 +32,10 @@ const messageSchema = new mongoose.Schema(
       trim:      true,
       maxlength: [500, 'Message cannot exceed 500 characters'],
     },
-    // Cloudinary URL — only set for image messages
     imageUrl: {
       type:    String,
       default: null,
     },
-    // ✓ sent | ✓✓ gray delivered | ✓✓ blue read
     status: {
       type:    String,
       enum:    ['sent', 'delivered', 'read'],
@@ -44,5 +46,4 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ sender: 1, receiver: 1, createdAt: 1 });
-
 module.exports = mongoose.models.Message || mongoose.model('Message', messageSchema);

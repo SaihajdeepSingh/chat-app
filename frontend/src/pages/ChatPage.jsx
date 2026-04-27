@@ -177,14 +177,25 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
       .then(r => r.json())
       .then(data => {
         clearTimeout(timeout);
-        if (Array.isArray(data) && data.length > 0) {
-          setConversations(p => ({ ...p, [u._id]: data }));
+        if (!Array.isArray(data)) return;
+        setConversations(p => {
+          // Merge DB history with any socket messages that arrived during the fetch.
+          // Use _id as key to deduplicate, then sort by createdAt.
+          const existing = Array.isArray(p[u._id]) ? p[u._id] : [];
+          const merged = new Map();
+          [...data, ...existing].forEach(m => merged.set(m._id?.toString(), m));
+          const sorted = [...merged.values()].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          return { ...p, [u._id]: sorted };
+        });
+        if (data.length > 0) {
           setLastMessages(p => ({ ...p, [u._id]: data[data.length - 1] }));
         }
       })
       .catch(() => {
         clearTimeout(timeout);
-        // Chat already open with [] — silently ignore fetch failure
+        // Chat already open with [] — silently ignore
       });
   };
 
