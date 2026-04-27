@@ -162,37 +162,31 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
     socketRef.current?.emit('messages-read', { senderId: u._id, token });
     setTimeout(() => inputRef.current?.focus(), 80);
 
-    // Already loading or loaded — skip
-    const cur = conversations[u._id];
-    if (cur !== undefined) return;
+    // Already fetched — skip
+    if (conversations[u._id] !== undefined) return;
 
-    // Mark loading
-    setConversations(p => ({ ...p, [u._id]: 'loading' }));
+    // Open chat immediately — no spinner blocking the UI
+    setConversations(p => ({ ...p, [u._id]: [] }));
 
-    // 40s timeout — handles Render free tier cold start (up to 30s)
+    // Fetch history silently in the background
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 40000);
+    setTimeout(() => ctrl.abort(), 40000);
 
     fetch(`${apiUrl}/api/messages/${u._id}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: ctrl.signal,
     })
       .then(r => {
-        clearTimeout(timer);
         if (r.status === 401) { onLogout(); return null; }
-        if (!r.ok) throw new Error('Server error');
-        return r.json();
+        return r.ok ? r.json() : null;
       })
       .then(data => {
-        if (!data) return;
-        const msgs = Array.isArray(data) ? data : [];
-        setConversations(p => ({ ...p, [u._id]: msgs }));
-        if (msgs.length > 0) setLastMessages(p => ({ ...p, [u._id]: msgs[msgs.length - 1] }));
+        if (!data || !Array.isArray(data) || data.length === 0) return;
+        setConversations(p => ({ ...p, [u._id]: data }));
+        setLastMessages(p => ({ ...p, [u._id]: data[data.length - 1] }));
       })
       .catch(() => {
-        clearTimeout(timer);
-        // Show empty so user can still send messages even if history fails
-        setConversations(p => ({ ...p, [u._id]: [] }));
+        // History failed — chat is already open with empty state, that's fine
       });
   };
 
@@ -261,7 +255,6 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
 
   const convoData   = selectedUser ? conversations[selectedUser._id] : undefined;
-  const isLoading   = convoData === 'loading';
   const currentMsgs = Array.isArray(convoData) ? convoData : [];
   const isOwnMsg      = msg => msg.sender?.toString() === user.id?.toString();
   const isOnline      = id => onlineUserIds.includes(id);
@@ -373,12 +366,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column' }}>
-            {isLoading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 14 }}>
-                <div className="spinner" />
-                <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>Loading messages...</p>
-              </div>
-            ) : currentMsgs.length === 0 ? (
+            {currentMsgs.length === 0 ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <Avatar name={selectedUser.name} src={selectedUser.avatar} size={60} />
                 <div style={{ textAlign: 'center' }}>
