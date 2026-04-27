@@ -157,17 +157,18 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
   // ── Fetch history with retry (handles Render cold start) ──────────────────
   // ── Select a conversation ─────────────────────────────────────────────────
-  const loadHistory = (userId) => {
+  const loadHistory = (userId, attempt = 1) => {
     setFetchingIds(s => new Set([...s, userId]));
 
     const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 40000);
+    const timer = setTimeout(() => ctrl.abort(), 10000);
 
     fetch(`${apiUrl}/api/messages/${userId}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: ctrl.signal,
     })
       .then(r => {
+        clearTimeout(timer);
         if (r.status === 401) { onLogout(); return null; }
         return r.ok ? r.json() : null;
       })
@@ -178,7 +179,12 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
         if (data.length > 0) setLastMessages(p => ({ ...p, [userId]: data[data.length - 1] }));
       })
       .catch(() => {
+        clearTimeout(timer);
         setFetchingIds(s => { const n = new Set(s); n.delete(userId); return n; });
+        // Retry once after 3 seconds if first attempt failed
+        if (attempt === 1) {
+          setTimeout(() => loadHistory(userId, 2), 3000);
+        }
       });
   };
 
