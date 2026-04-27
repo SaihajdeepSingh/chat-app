@@ -87,6 +87,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
   const [uploadErr,       setUploadErr]       = useState('');
   const [lightboxSrc,     setLightboxSrc]     = useState(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [fetchingIds,    setFetchingIds]    = useState(new Set());
 
   const socketRef       = useRef(null);
   const bottomRef       = useRef(null);
@@ -156,23 +157,13 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
   // ── Fetch history with retry (handles Render cold start) ──────────────────
   // ── Select a conversation ─────────────────────────────────────────────────
-  const selectUser = (u) => {
-    setSelectedUser(u);
-    setUnreadCounts(p => ({ ...p, [u._id]: 0 }));
-    socketRef.current?.emit('messages-read', { senderId: u._id, token });
-    setTimeout(() => inputRef.current?.focus(), 80);
+  const loadHistory = (userId) => {
+    setFetchingIds(s => new Set([...s, userId]));
 
-    // Already fetched — skip
-    if (conversations[u._id] !== undefined) return;
-
-    // Open chat immediately — no spinner blocking the UI
-    setConversations(p => ({ ...p, [u._id]: [] }));
-
-    // Fetch history silently in the background
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 40000);
 
-    fetch(`${apiUrl}/api/messages/${u._id}`, {
+    fetch(`${apiUrl}/api/messages/${userId}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: ctrl.signal,
     })
@@ -181,13 +172,27 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
         return r.ok ? r.json() : null;
       })
       .then(data => {
-        if (!data || !Array.isArray(data) || data.length === 0) return;
-        setConversations(p => ({ ...p, [u._id]: data }));
-        setLastMessages(p => ({ ...p, [u._id]: data[data.length - 1] }));
+        setFetchingIds(s => { const n = new Set(s); n.delete(userId); return n; });
+        if (!data || !Array.isArray(data)) return;
+        setConversations(p => ({ ...p, [userId]: data }));
+        if (data.length > 0) setLastMessages(p => ({ ...p, [userId]: data[data.length - 1] }));
       })
       .catch(() => {
-        // History failed — chat is already open with empty state, that's fine
+        setFetchingIds(s => { const n = new Set(s); n.delete(userId); return n; });
       });
+  };
+
+  const selectUser = (u) => {
+    setSelectedUser(u);
+    setUnreadCounts(p => ({ ...p, [u._id]: 0 }));
+    socketRef.current?.emit('messages-read', { senderId: u._id, token });
+    setTimeout(() => inputRef.current?.focus(), 80);
+
+    if (conversations[u._id] !== undefined) return;
+
+    // Open chat instantly — history loads in background
+    setConversations(p => ({ ...p, [u._id]: [] }));
+    loadHistory(u._id);
   };
 
   // ── Image handlers ────────────────────────────────────────────────────────
@@ -366,12 +371,22 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column' }}>
+            {/* History loading banner */}
+            {fetchingIds.has(selectedUser._id) && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 0 4px', flexShrink: 0 }}>
+                <div className="spinner" style={{ width: 12, height: 12 }} />
+                <span style={{ fontSize: 11, color: '#4a4a60' }}>Loading message history...</span>
+              </div>
+            )}
+
             {currentMsgs.length === 0 ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <Avatar name={selectedUser.name} src={selectedUser.avatar} size={60} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ fontSize: 15, fontWeight: 600, color: '#e2e2ed', margin: '0 0 4px' }}>{selectedUser.name}</p>
-                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>Start the conversation by sending a message</p>
+                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>
+                    {fetchingIds.has(selectedUser._id) ? 'Fetching previous messages...' : 'Start the conversation by sending a message'}
+                  </p>
                 </div>
               </div>
             ) : (
