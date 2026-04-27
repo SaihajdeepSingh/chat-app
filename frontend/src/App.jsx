@@ -9,6 +9,11 @@ export default function App() {
   const [token,   setToken]   = useState(null);
   const [loading, setLoading] = useState(true);
 
+  /* Wake up Render on app load so it's ready when user needs it */
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
+
   useEffect(() => {
     const savedToken = localStorage.getItem('chat_token');
     const savedUser  = localStorage.getItem('chat_user');

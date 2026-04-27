@@ -254,7 +254,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
 
   const convoData   = selectedUser ? conversations[selectedUser._id] : undefined;
-  const isLoading   = convoData === 'loading' || convoData === undefined;
+  const isLoading   = convoData === 'loading';
   const currentMsgs = Array.isArray(convoData) ? convoData : [];
   const isOwnMsg      = msg => msg.sender?.toString() === user.id?.toString();
   const isOnline      = id => onlineUserIds.includes(id);
