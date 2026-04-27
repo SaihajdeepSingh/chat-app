@@ -155,51 +155,38 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
 
   // ── Fetch history with retry (handles Render cold start) ──────────────────
-  const fetchHistory = (userId, attempt = 1) => {
-    setConversations(p => ({ ...p, [userId]: 'loading' }));
-
-    // Abort after 12s so we always retry instead of hanging forever
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
-
-    fetch(`${apiUrl}/api/messages/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: ctrl.signal,
-    })
-      .then(r => { clearTimeout(timer); if (!r.ok) throw new Error('bad'); return r.json(); })
-      .then(data => {
-        const msgs = Array.isArray(data) ? data : [];
-        setConversations(p => {
-          const live = Array.isArray(p[userId]) ? p[userId] : [];
-          const map = new Map();
-          [...msgs, ...live].forEach(m => map.set(String(m._id), m));
-          const sorted = [...map.values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-          return { ...p, [userId]: sorted };
-        });
-        if (msgs.length > 0) setLastMessages(p => ({ ...p, [userId]: msgs[msgs.length - 1] }));
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        if (attempt < 4) {
-          // Retry: attempt 1→6s, 2→12s, 3→18s gap
-          setTimeout(() => fetchHistory(userId, attempt + 1), 6000 * attempt);
-        } else {
-          // Give up — show empty state so UI doesn't stay stuck
-          setConversations(p => ({ ...p, [userId]: [] }));
-        }
-      });
-  };
-
   // ── Select a conversation ─────────────────────────────────────────────────
   const selectUser = (u) => {
     setSelectedUser(u);
     setUnreadCounts(p => ({ ...p, [u._id]: 0 }));
     socketRef.current?.emit('messages-read', { senderId: u._id, token });
     setTimeout(() => inputRef.current?.focus(), 80);
+
+    // Already loading or loaded — skip
     const cur = conversations[u._id];
-    if (cur === 'loading') return;
     if (cur !== undefined) return;
-    fetchHistory(u._id);
+
+    // Mark loading
+    setConversations(p => ({ ...p, [u._id]: 'loading' }));
+
+    fetch(`${apiUrl}/api/messages/${u._id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => {
+        if (r.status === 401) { onLogout(); return null; }
+        if (!r.ok) throw new Error('Server error');
+        return r.json();
+      })
+      .then(data => {
+        if (!data) return;
+        const msgs = Array.isArray(data) ? data : [];
+        setConversations(p => ({ ...p, [u._id]: msgs }));
+        if (msgs.length > 0) setLastMessages(p => ({ ...p, [u._id]: msgs[msgs.length - 1] }));
+      })
+      .catch(() => {
+        // On failure show empty so user can still send messages
+        setConversations(p => ({ ...p, [u._id]: [] }));
+      });
   };
 
   // ── Image handlers ────────────────────────────────────────────────────────
@@ -267,7 +254,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
 
   const convoData   = selectedUser ? conversations[selectedUser._id] : undefined;
-  const isLoading   = convoData === 'loading';
+  const isLoading   = convoData === 'loading' || convoData === undefined;
   const currentMsgs = Array.isArray(convoData) ? convoData : [];
   const isOwnMsg      = msg => msg.sender?.toString() === user.id?.toString();
   const isOnline      = id => onlineUserIds.includes(id);
