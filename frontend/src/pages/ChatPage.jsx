@@ -153,50 +153,45 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversations, selectedUser]);
 
+
+  // ── Fetch history with retry (handles Render cold start) ──────────────────
+  const fetchHistory = (userId, attempt = 1) => {
+    setConversations(p => ({ ...p, [userId]: 'loading' }));
+
+    fetch(`${apiUrl}/api/messages/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => { if (!r.ok) throw new Error('bad'); return r.json(); })
+      .then(data => {
+        const msgs = Array.isArray(data) ? data : [];
+        setConversations(p => {
+          const live = Array.isArray(p[userId]) ? p[userId] : [];
+          const map = new Map();
+          [...msgs, ...live].forEach(m => map.set(String(m._id), m));
+          const sorted = [...map.values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          return { ...p, [userId]: sorted };
+        });
+        if (msgs.length > 0) setLastMessages(p => ({ ...p, [userId]: msgs[msgs.length - 1] }));
+      })
+      .catch(() => {
+        if (attempt < 4) {
+          setTimeout(() => fetchHistory(userId, attempt + 1), 6000 * attempt);
+        } else {
+          setConversations(p => ({ ...p, [userId]: [] }));
+        }
+      });
+  };
+
   // ── Select a conversation ─────────────────────────────────────────────────
   const selectUser = (u) => {
     setSelectedUser(u);
     setUnreadCounts(p => ({ ...p, [u._id]: 0 }));
     socketRef.current?.emit('messages-read', { senderId: u._id, token });
     setTimeout(() => inputRef.current?.focus(), 80);
-
-    // Already fetched — nothing to do
-    if (conversations[u._id] !== undefined) return;
-
-    // Open chat immediately with empty array — no spinner blocking
-    setConversations(p => ({ ...p, [u._id]: [] }));
-
-    // Fetch history in background with 8s timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 35000);
-
-    fetch(`${apiUrl}/api/messages/${u._id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    })
-      .then(r => r.json())
-      .then(data => {
-        clearTimeout(timeout);
-        if (!Array.isArray(data)) return;
-        setConversations(p => {
-          // Merge DB history with any socket messages that arrived during the fetch.
-          // Use _id as key to deduplicate, then sort by createdAt.
-          const existing = Array.isArray(p[u._id]) ? p[u._id] : [];
-          const merged = new Map();
-          [...data, ...existing].forEach(m => merged.set(m._id?.toString(), m));
-          const sorted = [...merged.values()].sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
-          return { ...p, [u._id]: sorted };
-        });
-        if (data.length > 0) {
-          setLastMessages(p => ({ ...p, [u._id]: data[data.length - 1] }));
-        }
-      })
-      .catch(() => {
-        clearTimeout(timeout);
-        // Chat already open with [] — silently ignore
-      });
+    const cur = conversations[u._id];
+    if (cur === 'loading') return;
+    if (cur !== undefined) return;
+    fetchHistory(u._id);
   };
 
   // ── Image handlers ────────────────────────────────────────────────────────
@@ -264,7 +259,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
 
   const convoData   = selectedUser ? conversations[selectedUser._id] : undefined;
-
+  const isLoading   = convoData === 'loading';
   const currentMsgs = Array.isArray(convoData) ? convoData : [];
   const isOwnMsg      = msg => msg.sender?.toString() === user.id?.toString();
   const isOnline      = id => onlineUserIds.includes(id);
@@ -376,12 +371,17 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column' }}>
-            {currentMsgs.length === 0 ? (
+            {isLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 14 }}>
+                <div className="spinner" />
+                <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>Loading messages...</p>
+              </div>
+            ) : currentMsgs.length === 0 ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <Avatar name={selectedUser.name} src={selectedUser.avatar} size={60} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ fontSize: 15, fontWeight: 600, color: '#e2e2ed', margin: '0 0 4px' }}>{selectedUser.name}</p>
-                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>{conversations[selectedUser._id] !== undefined ? 'Start the conversation by sending a message' : 'Loading messages...'}</p>
+                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>Start the conversation by sending a message</p>
                 </div>
               </div>
             ) : (
