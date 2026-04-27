@@ -168,7 +168,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
 
     // Fetch history in background with 8s timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 35000);
 
     fetch(`${apiUrl}/api/messages/${u._id}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -381,7 +381,7 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
                 <Avatar name={selectedUser.name} src={selectedUser.avatar} size={60} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ fontSize: 15, fontWeight: 600, color: '#e2e2ed', margin: '0 0 4px' }}>{selectedUser.name}</p>
-                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>Start the conversation by sending a message</p>
+                  <p style={{ fontSize: 13, color: '#4a4a60', margin: 0 }}>{conversations[selectedUser._id] !== undefined ? 'Start the conversation by sending a message' : 'Loading messages...'}</p>
                 </div>
               </div>
             ) : (
