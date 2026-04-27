@@ -169,10 +169,16 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
     // Mark loading
     setConversations(p => ({ ...p, [u._id]: 'loading' }));
 
+    // 40s timeout — handles Render free tier cold start (up to 30s)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 40000);
+
     fetch(`${apiUrl}/api/messages/${u._id}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: ctrl.signal,
     })
       .then(r => {
+        clearTimeout(timer);
         if (r.status === 401) { onLogout(); return null; }
         if (!r.ok) throw new Error('Server error');
         return r.json();
@@ -184,7 +190,8 @@ export default function ChatPage({ user, token, apiUrl, onLogout, onUpdateUser }
         if (msgs.length > 0) setLastMessages(p => ({ ...p, [u._id]: msgs[msgs.length - 1] }));
       })
       .catch(() => {
-        // On failure show empty so user can still send messages
+        clearTimeout(timer);
+        // Show empty so user can still send messages even if history fails
         setConversations(p => ({ ...p, [u._id]: [] }));
       });
   };
