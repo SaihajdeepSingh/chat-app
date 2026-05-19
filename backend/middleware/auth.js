@@ -1,9 +1,5 @@
 const jwt = require('jsonwebtoken');
 
-/**
- * Express middleware — verifies the Bearer JWT token.
- * Attaches decoded payload to req.user on success.
- */
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -15,9 +11,9 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;   // { id, iat, exp }
+    req.user = decoded;
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ message: 'Access denied: invalid or expired token' });
   }
 };

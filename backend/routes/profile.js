@@ -1,7 +1,7 @@
 const express    = require('express');
 const multer     = require('multer');
 const cloudinary = require('cloudinary').v2;
-const User       = require('../models/User');
+const prisma     = require('../lib/prisma');
 
 const router = express.Router();
 
@@ -13,25 +13,26 @@ cloudinary.config({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 3 * 1024 * 1024 },   // 3 MB
+  limits:  { fileSize: 3 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
     else cb(new Error('Only image files are allowed'));
   },
 });
 
-/* ── GET /api/profile ── current user info ── */
 router.get('/', async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password').lean();
+    const user = await prisma.user.findUnique({
+      where:  { id: req.user.id },
+      select: { id: true, name: true, email: true, avatar: true, createdAt: true },
+    });
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
-  } catch (err) {
+    res.json({ ...user, _id: user.id });
+  } catch {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-/* ── POST /api/profile/avatar ── upload & save avatar ── */
 router.post('/avatar', upload.single('avatar'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No image provided' });
 
@@ -39,7 +40,6 @@ router.post('/avatar', upload.single('avatar'), async (req, res) => {
     const b64     = req.file.buffer.toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
 
-    // Upload to Cloudinary — square crop, face-aware
     const result = await cloudinary.uploader.upload(dataURI, {
       folder:         'chat-app/avatars',
       resource_type:  'image',
@@ -48,20 +48,14 @@ router.post('/avatar', upload.single('avatar'), async (req, res) => {
       ],
     });
 
-    // Save URL to DB
-    const updated = await User.findByIdAndUpdate(
-      req.user.id,
-      { avatar: result.secure_url },
-      { new: true }
-    ).select('-password');
+    const updated = await prisma.user.update({
+      where:  { id: req.user.id },
+      data:   { avatar: result.secure_url },
+      select: { id: true, name: true, email: true, avatar: true },
+    });
 
     res.json({
-      user: {
-        id:     updated._id,
-        name:   updated.name,
-        email:  updated.email,
-        avatar: updated.avatar,
-      },
+      user: { id: updated.id, name: updated.name, email: updated.email, avatar: updated.avatar },
     });
   } catch (err) {
     console.error('Avatar upload error:', err.message);
@@ -69,7 +63,6 @@ router.post('/avatar', upload.single('avatar'), async (req, res) => {
   }
 });
 
-// Multer error handler
 router.use((err, _req, res, _next) => {
   if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'Image must be under 3MB' });
   res.status(400).json({ message: err.message });
